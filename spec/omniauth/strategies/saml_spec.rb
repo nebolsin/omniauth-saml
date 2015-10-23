@@ -38,10 +38,9 @@ describe OmniAuth::Strategies::SAML, :type => :strategy do
         get '/auth/saml'
       end
 
-      it 'should get authentication page' do
+      it 'should redirect to authentication page passing only SAMLRequest param' do
         last_response.should be_redirect
-        last_response.location.should match /https:\/\/idp.sso.target_url\/signon\/29490/
-        last_response.location.should match /\?SAMLRequest=/
+        last_response.location.should match %r{^https://idp.sso.target_url/signon/29490\?SAMLRequest=}
         last_response.location.should_not match /mapped_param_key/
         last_response.location.should_not match /original_param_key/
       end
@@ -52,12 +51,16 @@ describe OmniAuth::Strategies::SAML, :type => :strategy do
         get '/auth/saml', 'original_param_key' => 'original_param_value', 'mapped_param_key' => 'mapped_param_value'
       end
 
-      it 'should get authentication page' do
+      it 'should redirect to authentication page passing runtime params' do
         last_response.should be_redirect
-        last_response.location.should match /https:\/\/idp.sso.target_url\/signon\/29490/
-        last_response.location.should match /\?SAMLRequest=/
+        last_response.location.should match %r{^https://idp.sso.target_url/signon/29490\?SAMLRequest=}
         last_response.location.should match /\&mapped_param_key=original_param_value/
         last_response.location.should_not match /original_param_key/
+      end
+
+      it 'should pass runtime params on subsequent requests' do
+        get '/auth/saml', 'original_param_key' => 'original_param_value', 'mapped_param_key' => 'mapped_param_value'
+        last_response.location.should match /\&mapped_param_key=original_param_value/
       end
     end
   end

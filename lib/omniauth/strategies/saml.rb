@@ -16,19 +16,32 @@ module OmniAuth
       ]
       option :attribute_service_name, 'Required attributes'
 
+      def saml_settings
+        OneLogin::RubySaml::Settings.new(options).tap do |settings|
+          settings.assertion_consumer_service_url ||= callback_url
+
+          if options.request_attributes.length > 0
+            settings.attribute_consuming_service.service_name options.attribute_service_name
+            options.request_attributes.each do |attribute|
+              settings.attribute_consuming_service.add_attribute attribute
+            end
+          end
+        end
+      end
+
       def request_phase
-        options[:assertion_consumer_service_url] ||= callback_url
-        runtime_request_parameters = options.delete(:idp_sso_target_url_runtime_params)
+        redirect(saml_authn_request.create(saml_settings, runtime_request_parameters))
+      end
 
-        additional_params = {}
-        runtime_request_parameters.each_pair do |request_param_key, mapped_param_key|
-          additional_params[mapped_param_key] = request.params[request_param_key.to_s] if request.params.has_key?(request_param_key.to_s)
-        end if runtime_request_parameters
+      def saml_authn_request
+        OneLogin::RubySaml::Authrequest.new
+      end
 
-        authn_request = OneLogin::RubySaml::Authrequest.new
-        settings = OneLogin::RubySaml::Settings.new(options)
-
-        redirect(authn_request.create(settings, additional_params))
+      def runtime_request_parameters
+        params = request.params
+        options.idp_sso_target_url_runtime_params.each_with_object({}) do |(param_key, request_key), result|
+          result[request_key] = params[param_key.to_s] if params.has_key?(param_key.to_s)
+        end
       end
 
       def callback_phase
@@ -46,8 +59,7 @@ module OmniAuth
           options.idp_cert_fingerprint = fingerprint_exists
         end
 
-        response = OneLogin::RubySaml::Response.new(request.params['SAMLResponse'], options)
-        response.settings = OneLogin::RubySaml::Settings.new(options)
+        response = OneLogin::RubySaml::Response.new(request.params['SAMLResponse'], settings: saml_settings)
         response.attributes['fingerprint'] = options.idp_cert_fingerprint
 
         @name_id = response.name_id
@@ -87,14 +99,7 @@ module OmniAuth
           setup_phase
 
           response = OneLogin::RubySaml::Metadata.new
-          settings = OneLogin::RubySaml::Settings.new(options)
-          if options.request_attributes.length > 0
-            settings.attribute_consuming_service.service_name options.attribute_service_name
-            options.request_attributes.each do |attribute|
-              settings.attribute_consuming_service.add_attribute attribute
-            end
-          end
-          Rack::Response.new(response.generate(settings), 200, { "Content-Type" => "application/xml" }).finish
+          Rack::Response.new(response.generate(saml_settings), 200, { "Content-Type" => "application/xml" }).finish
         else
           call_app!
         end
